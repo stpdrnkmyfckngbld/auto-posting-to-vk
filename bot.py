@@ -41,11 +41,25 @@ def process_text(text):
     # 2. Заменяем @freelogistics на @freelogistics1
     text = text.replace('@freelogistics', '@freelogistics1')
     
-    # 3. Извлекаем ссылки из текста (извлекаем URL из markdown ссылок)
+    # 3. Извлекаем ссылки из текста (работает с разными форматами ссылок)
     def replace_links(match):
-        return match.group(2)  # возвращаем только URL
+        # Для формата [текст](url)
+        if match.group(1) and match.group(2):
+            return match.group(2)
+        # Для HTML-формата <a href="url">текст</a>
+        elif match.group(3) and match.group(4):
+            return match.group(4)
+        # Для голых ссылок
+        return match.group(0)
     
-    text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', replace_links, text)
+    # Регулярка для всех форматов ссылок
+    text = re.sub(
+        r'\[([^\]]+)\]\((https?://[^\)]+)\)|'  # Markdown [текст](url)
+        r'<a href="(https?://[^"]+)">([^<]+)</a>|'  # HTML <a href="url">текст</a>
+        r'(https?://\S+)',  # Голые ссылки
+        replace_links,
+        text
+    )
     
     return text
 
