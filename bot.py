@@ -2,6 +2,7 @@
 import os
 import requests
 import vk_api
+import re
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER
@@ -28,6 +29,25 @@ dp = Dispatcher()
 media_groups = defaultdict(dict)
 processed_media_groups = set()
 
+def process_text(text):
+    """Обработка текста перед публикацией в VK"""
+    if not text:
+        return text
+    
+    # 1. Удаляем посты с словом "Розыгрыш" (регистронезависимо)
+    if re.search(r'розыгрыш', text, re.IGNORECASE):
+        return None
+    
+    # 2. Заменяем @freelogistics на @freelogistics1
+    text = text.replace('@freelogistics', '@freelogistics1')
+    
+    # 3. Извлекаем ссылки из текста (извлекаем URL из markdown ссылок)
+    def replace_links(match):
+        return match.group(2)  # возвращаем только URL
+    
+    text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', replace_links, text)
+    
+    return text
 
 # Функция для загрузки изображения на сервер ВКонтакте
 def upload_photo_to_vk(photo_url):
@@ -53,10 +73,13 @@ def upload_photo_to_vk(photo_url):
         print(f"❌ Ошибка при загрузке изображения в ВКонтакте: {e}")
         return None
 
-
 # Функция для публикации поста в ВКонтакте
 def post_to_vk(text, photo_urls=None):
     try:
+        if text is None:  # Если текст None (розыгрыш), не публикуем
+            print("⏩ Пропущен пост с розыгрышем")
+            return
+            
         vk_session = vk_api.VkApi(token=VK_GROUP_TOKEN)
         vk = vk_session.get_api()
 
@@ -76,7 +99,6 @@ def post_to_vk(text, photo_urls=None):
         print(f"✅ Пост с {len(attachments)} фото успешно опубликован в группу!")
     except Exception as e:
         print(f"❌ Ошибка при публикации поста в ВКонтакте: {e}")
-
 
 # Обработчик новых сообщений в канале
 @dp.channel_post()
@@ -125,7 +147,13 @@ async def handle_channel_post(message: types.Message):
         return
 
     # Обработка одиночных постов
-    text = message.text or message.caption or ""
+    original_text = message.text or message.caption or ""
+    text = process_text(original_text)  # Обрабатываем текст
+    
+    if text is None:  # Если это розыгрыш
+        print(f"⏩ Пропущен пост с розыгрышем: {original_text[:50]}...")
+        return
+        
     photos = []
 
     if message.photo:
@@ -139,8 +167,7 @@ async def handle_channel_post(message: types.Message):
     else:
         post_to_vk(text)
 
-    print(f"🔔 Одиночный пост обработан: {text[:50]}... ({len(photos)} фото)")
-
+    print(f"🔔 Пост обработан: {text[:50]}... ({len(photos)} фото)")
 
 async def process_media_group(media_group_id):
     if media_group_id not in media_groups:
@@ -150,14 +177,21 @@ async def process_media_group(media_group_id):
     if not group_data['photos']:
         return
 
+    # Обрабатываем текст
+    processed_text = process_text(group_data['text'])
+    if processed_text is None:  # Если это розыгрыш
+        print(f"⏩ Пропущена медиагруппа с розыгрышем: {group_data['text'][:50]}...")
+        processed_media_groups.add(media_group_id)
+        del media_groups[media_group_id]
+        return
+
     # Публикуем весь альбом
-    post_to_vk(group_data['text'], group_data['photos'])
-    print(f"🔔 Медиагруппа обработана: {group_data['text'][:50]}... ({len(group_data['photos'])} фото)")
+    post_to_vk(processed_text, group_data['photos'])
+    print(f"🔔 Медиагруппа обработана: {processed_text[:50]}... ({len(group_data['photos'])} фото)")
 
     # Помечаем медиагруппу как обработанную
     processed_media_groups.add(media_group_id)
     del media_groups[media_group_id]
-
 
 async def cleanup_media_groups():
     """Очистка старых медиагрупп"""
@@ -170,7 +204,6 @@ async def cleanup_media_groups():
                 del media_groups[mg_id]
                 print(f"🧹 Удалена старая медиагруппа {mg_id}")
 
-
 async def main():
     # Удаляем вебхук перед запуском polling
     await bot.delete_webhook(drop_pending_updates=True)
@@ -180,7 +213,6 @@ async def main():
 
     print("🟢 Бот запущен и ожидает новые посты в канале...")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
