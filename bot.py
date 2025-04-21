@@ -34,32 +34,37 @@ def process_text(text):
     if not text:
         return text
     
-    # 1. Удаляем посты с словом "Розыгрыш" (регистронезависимо)
+    # 1. Пропускаем посты с розыгрышами
     if re.search(r'розыгрыш', text, re.IGNORECASE):
         return None
     
-    # 2. Заменяем @freelogistics на @freelogistics1
+    # 2. Заменяем упоминания
     text = text.replace('@freelogistics', '@freelogistics1')
     
-    # 3. Извлекаем ссылки из текста (работает с разными форматами ссылок)
-    def replace_links(match):
-        # Для формата [текст](url)
-        if match.group(1) and match.group(2):
+    # 3. Обработка всех типов ссылок
+    def process_match(match):
+        # Обработка markdown ссылок [текст](url)
+        if match.group(2):  # Если найдена markdown ссылка
             return match.group(2)
-        # Для HTML-формата <a href="url">текст</a>
-        elif match.group(3) and match.group(4):
+        # Обработка HTML ссылок <a href="url">текст</a>
+        elif match.group(4):  # Если найдена HTML ссылка
             return match.group(4)
-        # Для голых ссылок
-        return match.group(0)
+        # Обработка голых ссылок
+        else:
+            return match.group(0)
     
-    # Регулярка для всех форматов ссылок
+    # Универсальное регулярное выражение для всех типов ссылок
     text = re.sub(
-        r'\[([^\]]+)\]\((https?://[^\)]+)\)|'  # Markdown [текст](url)
-        r'<a href="(https?://[^"]+)">([^<]+)</a>|'  # HTML <a href="url">текст</a>
-        r'(https?://\S+)',  # Голые ссылки
-        replace_links,
-        text
+        r'(?P<markdown>\[([^\]]+)\]\((?P<md_url>https?://[^\)]+)\))|'  # Markdown
+        r'(?P<html><a\s+href="(?P<html_url>https?://[^"]+)">[^<]+</a>)|'  # HTML
+        r'(?P<bare>https?://\S+)',  # Голые ссылки
+        process_match,
+        text,
+        flags=re.IGNORECASE
     )
+    
+    # Дополнительная очистка (на случай если осталось HTML-множение)
+    text = re.sub(r'<[^>]+>', '', text)
     
     return text
 
